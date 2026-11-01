@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+connections.toml
+config.toml
+*.p8
+*.pem
+*.key
+*.medium.html
+*.log
+.DS_Store

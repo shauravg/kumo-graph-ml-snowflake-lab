@@ -1,0 +1,6 @@
+# Install only inside Snowflake GPU Container Runtime 2.9 / Python 3.12.
+# Engine pin verified against PyPI metadata on 2026-10-21.
+kumo-engine[snowflake]==1.0.0
+snowflake-ml-python>=1.19
+# Capture pip freeze after the first successful runtime smoke test.
+# This is not a fully resolved transitive lockfile.

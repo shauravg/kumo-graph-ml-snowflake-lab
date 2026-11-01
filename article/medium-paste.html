@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="snowflake-source" content="cortex-agent-authored">
+<title>Medium paste: Kumo on Snowflake</title>
+<script type="application/json" id="snowflake-report-metadata">{"generated":"2026-10-26","intent":"Copy-paste source for a Medium draft, generated from article/linkedin-draft.md","dataSources":[{"type":"file","path":"linkedin-draft.md"}],"sections":[]}</script>
+<style>:root{color-scheme:light}body{font:18px/1.6 Georgia,serif;max-width:720px;width:100%;box-sizing:border-box;margin:0 auto;padding:clamp(16px,4vw,32px);color:#222}
+pre{font:13px/1.4 Menlo,monospace;background:#f3f3f3;padding:12px;overflow-x:auto}code{font:15px Menlo,monospace;background:#f3f3f3}
+.howto{font:14px -apple-system,sans-serif;background:#fff6d6;border:1px solid #e6c84f;padding:10px 14px;border-radius:8px}</style></head>
+<body><p class="howto"><strong>To paste into Medium:</strong> select from the title down (not this yellow box), copy, then paste into a new Medium story. The first heading becomes the title. Replace [IMAGE] and [INSERT LINK] placeholders afterwards.</p>
+<h1>Predicting Repeat Customers with NVIDIA Kumo on Snowflake. No Feature Engineering, No Data Leaving the Platform.</h1>
+<p><em>A hands-on build: governed retail data, a semantic view, a graph neural network, and batch predictions, all inside Snowflake.</em></p>
+<hr>
+<h3>The retail question every marketing team asks</h3>
+<p>Which customers will buy again in the next 30 days?</p>
+<p>It sounds simple. It drives real money: who gets the win-back email, who gets the discount, who you leave alone. And it's a question retailers have been answering the same way for years.</p>
+<p>The traditional playbook:</p>
+<ol>
+<li>Join customers, orders, order items and products into one wide table.</li>
+<li>Hand-build features. Orders in the last 30, 60, 90 days. Average basket size. Days since last purchase. Favorite category.</li>
+<li>Train a gradient-boosted tree on that table.</li>
+<li>Rebuild most of it when the business asks the next question.</li>
+</ol>
+<p>That works. It also throws information away. "4 orders in 90 days" says nothing about <em>what</em> was bought, <em>in what order</em>, or how those products behave across every other customer who bought them. Every feature is a guess about what matters, made by a person, before the model sees anything.</p>
+<h3>Why Kumo is different for this use case</h3>
+<p>Kumo skips the flattening step. It treats the database as what it already is: a graph.</p>
+<ul>
+<li>Every row becomes a node. A customer, an order, an order line, a product.</li>
+<li>Every foreign key becomes an edge. Order =&gt; customer. Order line =&gt; order. Order line =&gt; product.</li>
+<li>A graph neural network learns directly across those connections, respecting time.</li>
+</ul>
+<p>For retail repurchase that matters in three specific ways:</p>
+<ul>
+<li><strong>Product signal travels.</strong> A customer who bought products that <em>other</em> repeat buyers also bought carries signal a per-customer count never captures. That's two hops away in the graph. Painful to hand-engineer, natural for a GNN.</li>
+<li><strong>Sequence survives.</strong> The model sees individual orders with timestamps, not a pre-aggregated total.</li>
+<li><strong>New questions are cheap.</strong> Churn, next category, lifetime value. Change the prediction query, not the feature pipeline.</li>
+</ul>
+<p>The prediction itself is one declarative statement in Kumo's Predictive Query Language (PQL):</p>
+<pre>PREDICT COUNT(ORDERS.*, 0, 30, days) &gt; 0
+FOR EACH CUSTOMERS.CUSTOMER_ID
+WHERE COUNT(ORDERS.*, -90, 0, days) &gt; 0</pre>
+<p>In plain English: for every customer who bought in the last 90 days, will they buy again in the next 30?</p>
+<p>PQL looks like SQL. It isn't. It runs through Kumo, not the Snowflake SQL engine.</p>
+<p>One honest caveat up front: this is a propensity score. It tells you who is likely to buy. It doesn't prove that sending an offer <em>changes</em> behavior. That's a different experiment.</p>
+<h3>The research and the launch behind it</h3>
+<p>None of this is new science. It's new packaging.</p>
+<p>The method is called Relational Deep Learning, from the Kumo team and Stanford. Their paper frames a relational database as a temporal graph and trains GNNs on it directly. They also released RelBench, a public benchmark of 30 tasks across 7 real databases, comparing GNNs against an experienced data scientist hand-engineering features for LightGBM.</p>
+<ul>
+<li>Kumo's intro to Relational Deep Learning: <a href="https://kumo.ai/research/relational-deep-learning-rdl/">https://kumo.ai/research/relational-deep-learning-rdl/</a></li>
+<li>The paper: <a href="https://arxiv.org/abs/2312.04615">https://arxiv.org/abs/2312.04615</a></li>
+<li>RelBench explained: <a href="https://kumo.ai/research/relbench-guide/">https://kumo.ai/research/relbench-guide/</a></li>
+</ul>
+<p>On October 21, NVIDIA (which acquired Kumo earlier this year) launched the Kumo family of open models and the open-source Kumo Engine. Snowflake announced the same day that Kumo Engine runs on Snowflake ML. No separate Kumo account. No API key. Install the package in a Snowflake GPU runtime and go.</p>
+<ul>
+<li>Snowflake announcement: <a href="https://www.snowflake.com/en/blog/nvidia-kumo-graph-ml-snowflake/">https://www.snowflake.com/en/blog/nvidia-kumo-graph-ml-snowflake/</a></li>
+<li>NVIDIA Kumo overview: <a href="https://developer.nvidia.com/topics/ai/agent-knowledge-foundation/kumo">https://developer.nvidia.com/topics/ai/agent-knowledge-foundation/kumo</a></li>
+<li>Snowflake quickstart: <a href="https://www.snowflake.com/en/developers/guides/getting-started-with-nvidia-kumo-graph-neural-networks-in-snowflake/">https://www.snowflake.com/en/developers/guides/getting-started-with-nvidia-kumo-graph-neural-networks-in-snowflake/</a></li>
+</ul>
+<p>The quickstart shows the mechanics. I wanted to answer the next question: what does a <em>properly governed</em> version look like, the kind you could show a security team?</p>
+<h3>The architecture a real system needs</h3>
+<p>A notebook that trains a model isn't a system. Five things have to be true before anyone should trust the predictions:</p>
+<ol>
+<li><strong>Governed inputs.</strong> The model only sees columns and customers it's allowed to see.</li>
+<li><strong>One definition of the business.</strong> Relationships are defined once, not re-typed in every notebook.</li>
+<li><strong>GPU compute without a separate platform.</strong> No extra account, no data copied out.</li>
+<li><strong>Model lifecycle.</strong> Versioned, reloadable, auditable.</li>
+<li><strong>Honest evaluation.</strong> Later dates than training. A simple baseline on the same customers.</li>
+</ol>
+<p>Here's how Snowflake components map to each:</p>
+<p><strong>Governed inputs =&gt; secure views, masking and roles</strong></p>
+<p>Raw tables sit in a RAW schema. Secure views in a GOVERNED schema expose only approved columns and only ML-eligible customers, including their orders and items, so excluded customers can't sneak back in as graph neighbors. Names and emails live in a separate identity table with a masking policy. The ML role can't read RAW at all.</p>
+<p>Advantage: access control is the same RBAC you already run. Not a new system to audit.</p>
+<p><strong>One definition =&gt; a Snowflake semantic view</strong></p>
+<p>The semantic view <code>RETAIL_CUSTOMER_360</code> declares the tables, keys and the three relationships. Analysts use it for reporting. The pipeline reads the same definition with <code>DESCRIBE SEMANTIC VIEW</code>, validates it in SQL, and builds the Kumo graph from it.</p>
+<p>Advantage: one relationship definition, two uses. Report what happened. Predict what happens next.</p>
+<p><strong>GPU compute =&gt; Snowflake ML Jobs on a GPU compute pool</strong></p>
+<p>The training code runs as a Snowflake ML Job on a dedicated single-node GPU pool (NVIDIA A10G). A PyPI-only external access integration lets it install <code>kumo-engine</code>. It authenticates with the runtime's own identity.</p>
+<p>Advantage: no separately managed infrastructure outside Snowflake. The pool auto-suspends.</p>
+<p><strong>Model lifecycle =&gt; Snowflake Model Registry and Experiment Tracking</strong></p>
+<p>Every trained model is published as a new version in the Model Registry, then reloaded by exact version for scoring. Parameters, the semantic definition's fingerprint and holdout metrics go to Experiment Tracking.</p>
+<p>Advantage: "which model made this prediction?" has a query-able answer.</p>
+<p><strong>Honest evaluation =&gt; SQL</strong></p>
+<p>Labels, training populations, the baseline, output validation and every metric are SQL. Python only does what only the Kumo SDK can do.</p>
+<p>Advantage: the logic that decides whether the model is any good is readable, reviewable and runs on a warehouse.</p>
+<p>One more thing worth saying plainly. "No separately managed infrastructure" isn't "no infrastructure." There's still a warehouse, a GPU pool, packages and grants. And it isn't zero-copy: Kumo materializes a graph snapshot in the runtime. Changing a masking policy later doesn't erase an existing snapshot or what a model already learned. Those artifacts need their own lifecycle.</p>
+<h3>The flow, end to end</h3>
+<p>[IMAGE: screenshot of section 01 "End-to-end flow" from article/workflow.html]</p>
+<pre>  RAW tables  ──►  GOVERNED secure views  ──►  Semantic view
+  (synthetic)      approved columns only       RETAIL_CUSTOMER_360
+                   eligible customers only      tables, keys, joins
+       │                                              │
+       │  identity table                              │ DESCRIBE
+       │  masked, never a model input                 ▼
+       ✗                                       SQL manifest
+                                               validated, fingerprinted
+                                                      │
+                                                      ▼
+  SQL: labels, splits, seeds  ──────────────►  Kumo on GPU pool
+                                               graph =&gt; train =&gt; register
+                                                      │
+                                                      ▼
+                                               Reload exact version
+                                               score at each date
+                                                      │
+                                                      ▼
+                                               SQL: validate + metrics
+                                               restricted result tables</pre>
+<p>Step by step:</p>
+<ol>
+<li><strong>Generate and govern (SQL).</strong> Synthetic customers, orders, items and products land in RAW. Secure views filter them to approved columns and eligible customers.</li>
+<li><strong>Define semantics (SQL).</strong> A native semantic view declares the three relationships.</li>
+<li><strong>Validate (SQL).</strong> A procedure reads the semantic view, rejects anything outside an approved column list, checks keys and foreign keys against the data, and returns a manifest with a fingerprint. Change the semantic view mid-run =&gt; the run stops.</li>
+<li><strong>Prepare (SQL).</strong> Training labels at monthly anchor dates, a validation month and a test month, plus scoring populations and a purchase-frequency baseline.</li>
+<li><strong>Train (Python, Kumo SDK).</strong> Build the graph from the manifest, snapshot it, train one bounded run (5 epochs), and publish to the Model Registry.</li>
+<li><strong>Score (Python, Kumo SDK).</strong> Reload the exact model version. Build a fresh snapshot for each scoring date and predict.</li>
+<li><strong>Finalize (SQL).</strong> Check every expected customer got exactly one valid score, write normalized result tables, and compute holdout metrics.</li>
+</ol>
+<h4>The graph Kumo learns from</h4>
+<p>[IMAGE: screenshot of section 03 relationship diagram from article/workflow.html]</p>
+<pre>  CUSTOMERS ◄── ORDERS ◄── ORDER_ITEMS ──► PRODUCTS
+        CUSTOMER_ID    ORDER_ID      PRODUCT_ID</pre>
+<p>Three relationships, straight from the semantic view. In the run below that became a graph of about 340,000 nodes and 1.1 million edges.</p>
+<h4>Why time is the hard part</h4>
+<p>[IMAGE: screenshot of section 04 timeline from article/workflow.html]</p>
+<pre>  Apr ─────── Nov 2025   Jan 1    Mar 1   Apr 1     May 31    Jun 30
+  └─ training anchors ─┘  valid.   test   fit cut   HOLDOUT   CURRENT
+                                          off       (scored,  (scored,
+                                                     graded)  no labels)</pre>
+<p>Leakage is the classic way a churn model looks brilliant in a notebook and useless in production. So:</p>
+<ul>
+<li>Training data stops at April 1. The holdout period never enters training.</li>
+<li>Each scoring date gets its own fresh snapshot, cut off at that date. May 31 scoring sees nothing from June, the month it's predicting.</li>
+<li>The holdout batch is graded against what customers actually did. The current batch is the real output: no labels, because it's the future.</li>
+</ul>
+<h3>What the run showed</h3>
+<p>All data is synthetic. Both models scored the same 6,476 holdout customers as of May 31. Then we checked who actually bought in June: 43% did.</p>
+<p><strong>Kumo graph model</strong></p>
+<ul>
+<li>AUROC: 0.705</li>
+<li>Average precision: 0.632</li>
+<li>Top-10% lift: 1.70x</li>
+<li>Brier score: 0.273</li>
+</ul>
+<p><strong>Purchase-frequency baseline</strong></p>
+<ul>
+<li>AUROC: 0.638</li>
+<li>Average precision: 0.549</li>
+<li>Top-10% lift: 1.49x</li>
+<li>Brier score: 0.246</li>
+</ul>
+<h4>How to read these numbers</h4>
+<p>The metrics answer two different questions. A model can be good at one and bad at the other.</p>
+<p><strong>Question 1: does it put likely buyers first? (ranking)</strong></p>
+<ul>
+<li><strong>AUROC.</strong> Pick one customer who bought and one who didn't. How often does the model score the buyer higher? 0.5 is a coin flip, 1.0 is perfect. Kumo gets that pair right about 70% of the time, the baseline about 64%. Solid for a 30-day purchase prediction. Not magic.</li>
+<li><strong>Top-10% lift.</strong> The most business-friendly number. Take the top-scored 10%, about 650 customers. Kumo's group bought again at about 73%, against a 43% average. The baseline's group bought at about 64%. Same email budget =&gt; roughly 60 more actual buyers on Kumo's list.</li>
+<li><strong>Average precision.</strong> How pure the list stays as you work down it. Random ordering would score 0.43, the base rate. Both beat random; Kumo by more.</li>
+</ul>
+<p><strong>Question 2: are the probabilities honest? (calibration)</strong></p>
+<ul>
+<li><strong>Brier score.</strong> The average squared gap between the predicted probability and what happened. Lower is better.</li>
+<li>The useful yardstick: give every customer the same 43% score and you get 0.245.</li>
+<li>The baseline lands right on that yardstick. Kumo lands above it.</li>
+<li>So Kumo's <em>ordering</em> is better, but its probability numbers are systematically off. Likely reasons: training months had different purchase rates, only 5 epochs, and no calibration step.</li>
+</ul>
+<h4>What that means in practice</h4>
+<ul>
+<li><strong>Do</strong> use Kumo's scores to sort customers. "Target the top 20%" is the right kind of decision.</li>
+<li><strong>Don't</strong> use a raw score as a probability yet. "73% likely, so spend up to $X" would mislead you.</li>
+<li><strong>Fix it</strong> with a calibration step (Platt scaling or isotonic regression) fitted on the validation month. Ranking stays, numbers become trustworthy.</li>
+</ul>
+<h4>How much to read into it</h4>
+<ul>
+<li><strong>Synthetic data.</strong> It proves the pipeline works, not the size of the gain on a real retailer.</li>
+<li><strong>One run.</strong> No confidence intervals or repeats. A 0.067 AUROC gap on 6,476 customers is probably real, but I didn't measure the uncertainty.</li>
+<li><strong>Simple baseline.</strong> A purchase-frequency count, not a tuned gradient-boosted model. Beating it is a floor.</li>
+<li><strong>Propensity, not impact.</strong> These scores say who will buy, not who will buy <em>because</em> you contacted them. That needs a holdout campaign.</li>
+</ul>
+<p>Run facts: one NVIDIA A10G, kumo-engine 1.0.0, 5 training epochs, about 5 minutes for the successful job. 6,217 current customers scored, none missing, no names or emails anywhere in the outputs.</p>
+<p>Two things broke on the way, both worth knowing. Kumo rejected decimal-number keys, and it rejected a decimal-typed split column. Both fixed by casting in SQL: keys to strings, the split to a float.</p>
+<h3>Hands-on lab: run it yourself</h3>
+<p>[INSERT LINK TO CODE REPOSITORY]</p>
+<p><strong>What you need</strong></p>
+<ul>
+<li>A Snowflake account with ACCOUNTADMIN for the one-time setup</li>
+<li>GPU compute pool access (GPU_NV_S)</li>
+<li>Python 3.12 locally with <code>snowflake-ml-python</code>, plus the Snowflake CLI</li>
+<li>About 30 minutes, most of it waiting on the GPU</li>
+</ul>
+<p><strong>Step 1: Set up roles, compute and governance</strong></p>
+<p>Review and run <code>sql/01_setup_review.sql</code>. It creates four roles (owner, identity steward, ML, reader), an X-Small warehouse, a single-node GPU pool, a PyPI-only network integration, the RAW and GOVERNED objects, and the masking policy. Before running anything, replace the demo account name <code><YOUR_ACCOUNT></code> (a safety guard in the SQL scripts and <code>job_entry.py</code>) with your account name, and the user <code><YOUR_USER></code> in the grants with yours.</p>
+<p><strong>Step 2: Generate the synthetic data</strong></p>
+<p>Run <code>sql/03_generate_synthetic.sql</code> as <code>KUMO_DEMO_OWNER</code>. Deterministic, about 30 seconds. It refuses to run against tables that already have data.</p>
+<p><strong>Step 3: Create the semantic view</strong></p>
+<p>Run <code>sql/04_semantic_view.sql</code>, then <code>sql/02_semantic_queries.sql</code> for grants and a few descriptive queries. Try it:</p>
+<pre>SELECT * FROM SEMANTIC_VIEW(
+  KUMO_SEMANTIC_DEMO.SEMANTIC.RETAIL_CUSTOMER_360
+  METRICS ORDERS.SALES);</pre>
+<p><strong>Step 4: Install the SQL pipeline</strong></p>
+<p>Run <code>sql/05_contracts.sql</code>, <code>sql/06_prepare.sql</code> and <code>sql/07_finalize.sql</code>, in that order, as <code>KUMO_DEMO_OWNER</code>.</p>
+<p><strong>Step 5: Prove the governance</strong></p>
+<p>Run <code>sql/08_acceptance.sql</code>. You should see the owner role get 0 visible names, the steward see all of them, and the ML role pass its data checks. The last call returns the semantic manifest. Copy its <code>semantic_hash</code>. That's your approval of exactly what the model will see.</p>
+<p><strong>Step 6: Train and score on the GPU</strong></p>
+<p>From the repo root:</p>
+<pre>python submit_job.py &lt;semantic_hash&gt; sql-v2</pre>
+<p>It uploads the code, runs it as a Snowflake ML Job on the GPU pool, waits, and prints the logs.</p>
+<p><strong>Step 7: Look at the results</strong></p>
+<pre>SELECT run_id, status, model_version
+FROM KUMO_SEMANTIC_DEMO.RESULTS.V2_RUNS;
+
+CALL KUMO_SEMANTIC_DEMO.RESULTS.V2_EVALUATE(
+  &#x27;&lt;your account name&gt;&#x27;,
+  &#x27;KUMO_SEMANTIC_DEMO.RESULTS.RETAIL_HOLDOUT_&lt;run_id&gt;&#x27;);</pre>
+<p>Then open the Model Registry and Experiment Tracking in Snowsight and find your run.</p>
+<p><strong>Step 8: Clean up</strong></p>
+<p>Suspend the pool and warehouse when you're done. To remove everything, run <code>sql/99_cleanup.sql</code> as ACCOUNTADMIN. It's irreversible: data, models and predictions all go.</p>
+<h3>Takeaways</h3>
+<ul>
+<li>For relational problems like repurchase, a GNN on the raw graph skips the feature-engineering cycle and kept more signal than a frequency baseline in this demo.</li>
+<li>Kumo Engine on Snowflake means the GPU work happens next to governed data, under the same roles and audit trail.</li>
+<li>Define relationships once in a semantic view. Use them for analytics and for ML.</li>
+<li>Keep evaluation logic in SQL, and check calibration before acting on probabilities.</li>
+</ul>
+<p><em>Synthetic data. Results describe this demo, not a measured business outcome.</em></p>
+<hr>
+<p><strong>Sources</strong></p>
+<ul>
+<li>Snowflake: Scaling Graph ML with NVIDIA Kumo on Snowflake ML: <a href="https://www.snowflake.com/en/blog/nvidia-kumo-graph-ml-snowflake/">https://www.snowflake.com/en/blog/nvidia-kumo-graph-ml-snowflake/</a></li>
+<li>Snowflake quickstart: <a href="https://www.snowflake.com/en/developers/guides/getting-started-with-nvidia-kumo-graph-neural-networks-in-snowflake/">https://www.snowflake.com/en/developers/guides/getting-started-with-nvidia-kumo-graph-neural-networks-in-snowflake/</a></li>
+<li>NVIDIA Kumo: <a href="https://developer.nvidia.com/topics/ai/agent-knowledge-foundation/kumo">https://developer.nvidia.com/topics/ai/agent-knowledge-foundation/kumo</a></li>
+<li>NVIDIA Kumo Engine docs: <a href="https://docs.nvidia.com/sdgm/kumo-engine/1.0.0/get-started-with-kumo-engine/overview">https://docs.nvidia.com/sdgm/kumo-engine/1.0.0/get-started-with-kumo-engine/overview</a></li>
+<li>Kumo: Relational Deep Learning: <a href="https://kumo.ai/research/relational-deep-learning-rdl/">https://kumo.ai/research/relational-deep-learning-rdl/</a></li>
+<li>Relational Deep Learning paper: <a href="https://arxiv.org/abs/2312.04615">https://arxiv.org/abs/2312.04615</a></li>
+<li>Kumo: RelBench guide: <a href="https://kumo.ai/research/relbench-guide/">https://kumo.ai/research/relbench-guide/</a></li>
+<li>Snowflake semantic views: <a href="https://docs.snowflake.com/en/user-guide/views-semantic/best-practices-dev">https://docs.snowflake.com/en/user-guide/views-semantic/best-practices-dev</a></li>
+</ul>
+</body></html>

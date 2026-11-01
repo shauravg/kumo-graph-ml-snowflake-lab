@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "governed-kumo-retail-demo"
+version = "0.1.0"
+description = "Synthetic retail predictions from governed Snowflake semantic relationships"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+snowflake = ["snowflake-snowpark-python", "snowflake-ml-python>=1.19"]
+
+[tool.setuptools.packages.find]
+include = ["retail_demo*"]

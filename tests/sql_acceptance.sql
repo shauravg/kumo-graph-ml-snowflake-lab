@@ -1,0 +1,48 @@
+-- Run ONLY after v2 procedure deployment in the approved demo account.
+-- Creates session-local fixtures; no training, no source mutations.
+USE ROLE KUMO_DEMO_ML;
+USE SECONDARY ROLES NONE;
+USE WAREHOUSE KUMO_DEMO_WH;
+USE DATABASE KUMO_SEMANTIC_DEMO;
+USE SCHEMA RESULTS;
+CALL V2_ASSERT_IDENTITY('<YOUR_ACCOUNT>');
+CREATE TEMP TABLE V2_METRIC_FIXTURE(entity1 NUMBER,timestamp TIMESTAMP_NTZ,target1 BOOLEAN,probability DOUBLE,baseline_prob DOUBLE);
+INSERT INTO V2_METRIC_FIXTURE VALUES
+ (1,'2026-05-31',FALSE,0,0.5),(2,'2026-05-31',TRUE,1,0.5),
+ (3,'2026-05-31',FALSE,0,0.5),(4,'2026-05-31',TRUE,1,0.5);
+EXECUTE IMMEDIATE $$
+DECLARE
+ report VARIANT; n NUMBER; rejected BOOLEAN;
+ failure EXCEPTION (-20090,'SQL fixture assertion failed');
+BEGIN
+ CALL KUMO_SEMANTIC_DEMO.RESULTS.V2_EVALUATE('<YOUR_ACCOUNT>','KUMO_SEMANTIC_DEMO.RESULTS.V2_METRIC_FIXTURE') INTO :report;
+ SELECT COUNT(*) INTO :n FROM TABLE(FLATTEN(INPUT=>:report:metrics))
+ WHERE (value:model='kumo' AND (value:auroc<>1 OR value:average_precision<>1 OR value:brier<>0))
+    OR (value:model='baseline' AND (value:auroc<>0.5 OR value:average_precision<>0.5 OR value:top_decile_lift<>1));
+ IF (n<>0) THEN RAISE failure; END IF;
+ -- No positives: undefined rank/AP/lift values must remain JSON null.
+ UPDATE KUMO_SEMANTIC_DEMO.RESULTS.V2_METRIC_FIXTURE SET target1=FALSE;
+ CALL KUMO_SEMANTIC_DEMO.RESULTS.V2_EVALUATE('<YOUR_ACCOUNT>','KUMO_SEMANTIC_DEMO.RESULTS.V2_METRIC_FIXTURE') INTO :report;
+ SELECT COUNT(*) INTO :n FROM TABLE(FLATTEN(INPUT=>:report:metrics))
+ WHERE NOT IS_NULL_VALUE(value:auroc) OR NOT IS_NULL_VALUE(value:average_precision) OR NOT IS_NULL_VALUE(value:top_decile_lift);
+ IF (n<>0) THEN RAISE failure; END IF;
+ -- Snowflake NaN compares differently from IEEE; the production range guard must reject it.
+ UPDATE KUMO_SEMANTIC_DEMO.RESULTS.V2_METRIC_FIXTURE SET probability='NaN'::DOUBLE WHERE entity1=1;
+ rejected := FALSE;
+ BEGIN
+   CALL KUMO_SEMANTIC_DEMO.RESULTS.V2_EVALUATE('<YOUR_ACCOUNT>','KUMO_SEMANTIC_DEMO.RESULTS.V2_METRIC_FIXTURE');
+ EXCEPTION WHEN OTHER THEN
+   IF (SQLCODE=-20030) THEN rejected:=TRUE; ELSE RAISE; END IF;
+ END;
+ IF (NOT rejected) THEN RAISE failure; END IF;
+ DELETE FROM KUMO_SEMANTIC_DEMO.RESULTS.V2_METRIC_FIXTURE;
+ rejected := FALSE;
+ BEGIN
+   CALL KUMO_SEMANTIC_DEMO.RESULTS.V2_EVALUATE('<YOUR_ACCOUNT>','KUMO_SEMANTIC_DEMO.RESULTS.V2_METRIC_FIXTURE');
+ EXCEPTION WHEN OTHER THEN
+   IF (SQLCODE=-20030) THEN rejected:=TRUE; ELSE RAISE; END IF;
+ END;
+ IF (NOT rejected) THEN RAISE failure; END IF;
+END;
+$$;
+DROP TABLE V2_METRIC_FIXTURE;

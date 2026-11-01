@@ -33,11 +33,3 @@ Snowflake [semantic governance guidance](https://docs.snowflake.com/en/user-guid
 The ML connector reads GOVERNED views directly. Its access is enforced by grants and explicit view projections, not magically inherited from semantic metadata. An independent allowlist prevents metadata edits from widening the input contract. Declared keys are not trusted without data checks.
 
 The snapshot index contains materialized data in the Snowflake compute environment. New masking rules do not erase existing scratch or learned model parameters. Policy changes require reviewing retained snapshots, caches, model versions, and output tables; rebuild/retrain or remove them as appropriate. Customer surrogate keys would remain potentially linkable in a real deployment. No privacy-law certification is claimed.
-
-## Infrastructure and publication language
-
-Use: "No separately managed infrastructure outside Snowflake."
-
-Do not use: "No infrastructure", "zero copy", "no setup", "automatic full semantic integration", "guaranteed anonymous", or "measured customer lift".
-
-GPU capacity, package access, storage, grants, ongoing operation and cost controls remain necessary. Do not expose account identifiers in public screenshots. Offline tests prove code behavior only; publish model results only after the live acceptance checklist passes.
